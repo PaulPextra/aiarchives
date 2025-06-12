@@ -13,7 +13,8 @@ import { parseCopilot } from './copilot';
  * @param html      Raw HTML from the extension
  * @param model     model name passed by the extension
  */
-export async function parseHtmlToConversation(html: string, model: string): Promise<Conversation> {
+export async function parseHtmlToConversation(html: string, input: string): Promise<Conversation> {
+  const model = input.toLowerCase();
   switch (model) {
     case 'chatgpt':
     case 'gpt':
