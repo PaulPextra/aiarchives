@@ -22,7 +22,7 @@ jobs:
 
       - name: Sync build to EC2
         run: |
-          echo "$SSH_KEY" > deploy_key
+          echo "$SSH_KEY" | base64 -d > deploy_key
           chmod 600 deploy_key
           rsync -avz --delete \
             --exclude 'node_modules' --exclude '.git' --exclude '.env' \
