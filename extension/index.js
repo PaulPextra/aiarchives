@@ -6,7 +6,6 @@ chrome.runtime.onMessage.addListener(function (request, _, sendResponse) {
   if (request.action === 'scrape') {
     scrape();
   }
-  console.log('Listening....')
   if (request.action === 'model') {
     model = request.model;
   }
@@ -15,7 +14,6 @@ chrome.runtime.onMessage.addListener(function (request, _, sendResponse) {
 });
 
 async function scrape() {
-  console.log('Scraping Start')
   const htmlDoc = document.documentElement.innerHTML;
   if (!htmlDoc || isRequesting) return;
 
