@@ -1,13 +1,13 @@
-// lib/scrapeChatGPTWithInlineStyles.ts
-import puppeteer  from 'puppeteer';
-import { JSDOM }  from 'jsdom';
-import fs         from 'node:fs/promises';
+// lib/scrapeChatGPTConversationContainer.ts
+import puppeteer from 'puppeteer';
+import { JSDOM } from 'jsdom';
+import fs        from 'node:fs/promises';
 
 const ARTICLE_SEL = 'article[data-testid^="conversation-turn"]';
 const FONT_EXT    = /\.(woff2?|ttf|otf)(\?[^)]+)?$/i;
 
-/* ─────────────────────────  STEP 1:  Render & inline external <link>  ───────────────────────── */
-async function renderWithStylesheetsInlined(url: string): Promise<string> {
+/* ───────────────────────── 1️⃣  Render page & inline <link>  ───────────────────────── */
+async function renderWithInlineLinks(url: string): Promise<string> {
   const browser = await puppeteer.launch({ headless: 'new' });
   const page    = await browser.newPage();
   await page.goto(url, { waitUntil: 'networkidle0' });
@@ -18,18 +18,18 @@ async function renderWithStylesheetsInlined(url: string): Promise<string> {
     await new Promise(r => setTimeout(r, 500));
   });
 
-  // swap every <link rel="stylesheet"> for an inline <style>
+  // <link rel="stylesheet"> ➜ <style>
   await page.evaluate(async () => {
     const links = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'));
-    for (const link of links) {
-      if (!link.href) continue;
+    for (const l of links) {
+      if (!l.href) continue;
       try {
-        const css   = await (await fetch(link.href)).text();
-        const style = document.createElement('style');
-        style.textContent = css;
-        style.setAttribute('data-inlined-from', link.href.split('?')[0]);
-        link.replaceWith(style);
-      } catch {/* ignore */}
+        const css   = await (await fetch(l.href)).text();
+        const tag   = document.createElement('style');
+        tag.textContent = css;
+        tag.setAttribute('data-inlined-from', l.href.split('?')[0]);
+        l.replaceWith(tag);
+      } catch {/* ignore */ }
     }
   });
 
@@ -38,75 +38,91 @@ async function renderWithStylesheetsInlined(url: string): Promise<string> {
   return html;
 }
 
-/* ───────────  STEP 2:  expand @import & embed font binaries as data-URIs  ─────────── */
-async function inlineImportsAndFonts(fullHtml: string): Promise<string> {
-  const dom          = new JSDOM(fullHtml);
+/* ────────── 2️⃣  Optional: embed @import’d CSS & font binaries as data:URIs ────────── */
+async function inlineImportsAndFonts(full: string): Promise<string> {
+  const dom          = new JSDOM(full);
   const { document } = dom.window;
 
   for (const style of Array.from(document.querySelectorAll<HTMLStyleElement>('style'))) {
     const baseHref = style.getAttribute('data-inlined-from') ?? document.baseURI;
     let css        = style.textContent ?? '';
 
-    /* 2-A  expand @import … ;  (1-level deep is enough for ChatGPT sheets) */
+    /* expand @import url(...) */
     const importRe = /@import\s+(?:url\()?['"]?([^'")]+)['"]?\)?[^;]*;/g;
     let m: RegExpExecArray | null;
     while ((m = importRe.exec(css))) {
       try {
-        const absUrl   = new URL(m[1], baseHref).href;
-        const imported = await (await fetch(absUrl)).text();
-        css = css.replace(m[0], imported);
-      } catch {/* ignore */}
+        const abs = new URL(m[1], baseHref).href;
+        const txt = await (await fetch(abs)).text();
+        css = css.replace(m[0], txt);
+      } catch {/* ignore */ }
     }
 
-    /* 2-B  embed font binaries */
+    /* embed font binaries */
     const urlRe = /url\((['"]?)([^'")]+)\1\)/g;
-    const replacements: { from: string; to: string }[] = [];
-
+    const repls: { from: string; to: string }[] = [];
     while ((m = urlRe.exec(css))) {
       const abs = new URL(m[2], baseHref).href;
       if (!FONT_EXT.test(abs)) continue;
       try {
-        const buf   = Buffer.from(await (await fetch(abs)).arrayBuffer());
-        const mime  = 'font/' + (abs.split('.').pop() ?? 'woff2');
-        const data  = `url(data:${mime};base64,${buf.toString('base64')})`;
-        replacements.push({ from: m[0], to: data });
-      } catch {/* ignore */}
+        const buf  = Buffer.from(await (await fetch(abs)).arrayBuffer());
+        const mime = 'font/' + (abs.split('.').pop() ?? 'woff2');
+        repls.push({ from: m[0], to: `url(data:${mime};base64,${buf.toString('base64')})` });
+      } catch {/* ignore */ }
     }
-    replacements.forEach(r => { css = css.split(r.from).join(r.to); });
+    repls.forEach(r => { css = css.split(r.from).join(r.to); });
     style.textContent = css;
   }
   return dom.serialize();
 }
 
-/* ───────────  STEP 3:  keep only the <article> bubbles  ─────────── */
-function cropToConversation(fullHtml: string): string {
-  const dom          = new JSDOM(fullHtml);
+/* ────────── 3️⃣  Locate & keep ONLY the scroll container that owns the articles ────── */
+function cropToConversationContainer(full: string): string {
+  const dom          = new JSDOM(full);
   const { document } = dom.window;
 
-  const wrapper = document.createElement('div');
-  wrapper.style.maxWidth = '46rem';
-  wrapper.style.margin   = '0 auto';
+  /** helper: climb ancestors until we hit the flex/overflow-y-auto wrapper */
+  function findContainer(): HTMLElement | null {
+    const firstArticle = document.querySelector(ARTICLE_SEL) as HTMLElement | null;
+    if (!firstArticle) return null;
 
-  document.querySelectorAll(ARTICLE_SEL).forEach(a =>
-    wrapper.appendChild(a.cloneNode(true))
-  );
+    let node: HTMLElement | null = firstArticle.parentElement;
+    while (node && node !== document.body) {
+      const cls = node.className as string;
+      /* heuristic: ‘flex’, ‘flex-col’, & ‘overflow-y-auto’ are always present */
+      if (cls.includes('overflow-y-auto') && cls.includes('flex') && cls.includes('flex-col')) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
 
-  document.body.innerHTML = '';
-  document.body.appendChild(wrapper);
+  const container = findContainer();
+  if (!container) return full;                 // fallback: give full HTML
+
+  document.body.innerHTML = '';                // strip everything else
+  document.body.appendChild(container.cloneNode(true));
+
   return dom.serialize();
 }
 
-/* ───────────  PUBLIC API  ─────────── */
-export async function scrapeChatGPTWithInlineStyles(
+/* ────────── 4️⃣  PUBLIC API ────────── */
+export async function scrapeChatGPTConversationContainer(
   url: string,
   opts: { debugSaveFull?: string; debugSaveCropped?: string } = {}
-): Promise<string> {
-  /* 1 */ const rendered   = await renderWithStylesheetsInlined(url);
-  /* 2 */ const fontInlined= await inlineImportsAndFonts(rendered);
-  if (opts.debugSaveFull)   await fs.writeFile(opts.debugSaveFull, fontInlined);
+) {
+  /* stage 1 */
+  const rendered = await renderWithInlineLinks(url);
 
-  /* 3 */ const cropped    = cropToConversation(fontInlined);
+  /* stage 2 (fonts) — comment the next line out if you don’t need full offline-font support */
+  const fontSafe = await inlineImportsAndFonts(rendered);
+
+  if (opts.debugSaveFull) await fs.writeFile(opts.debugSaveFull, fontSafe);
+
+  /* stage 3 */
+  const cropped   = cropToConversationContainer(fontSafe);
   if (opts.debugSaveCropped) await fs.writeFile(opts.debugSaveCropped, cropped);
 
-  return cropped;
+  return cropped;         // ← single file, container only, fully styled
 }

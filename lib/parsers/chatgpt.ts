@@ -3,34 +3,34 @@ import type { Conversation }             from '@/types/conversation';
 import { JSDOM }                         from 'jsdom';
 
 /**
- *  ░▒▓█ Crop the HTML so **only the conversation bubbles remain** █▓▒░
- *  – keeps <html>/<head> intact so in-lined CSS variables still work –
+ *  Trim pasted /raw HTML down to just the <article> turns and inline any
+ *  remaining external stylesheets.  (We call this only for *non-URL* input
+ *  because scrapeChatGPTWithInlineStyles already returns bubbles-only.)
  */
 async function keepOnlyArticles(html: string): Promise<string> {
-  const dom              = new JSDOM(html);
-  const { document }     = dom.window;
+  const dom          = new JSDOM(html);
+  const { document } = dom.window;
 
-  /* 1️⃣  Inline any leftover <link rel="stylesheet"> (raw HTML path) */
-  const links = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'));
+  /* 1. Any leftover <link rel="stylesheet"> → inline <style> */
   await Promise.all(
-    links.map(async link => {
-      try {
-        const css   = await (await fetch(link.href)).text();
-        const style = document.createElement('style');
-        style.textContent = css;
-        style.setAttribute('data-inlined-from', link.href.split('?')[0]);
-        link.replaceWith(style);
-      } catch {/* ignore network errors */ }
-    })
+    Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'))
+      .map(async link => {
+        try {
+          const css   = await (await fetch(link.href)).text();
+          const style = document.createElement('style');
+          style.textContent = css;
+          style.setAttribute('data-inlined-from', link.href.split('?')[0]);
+          link.replaceWith(style);
+        } catch { /* ignore CORS / 404 */ }
+      })
   );
 
-  /* 2️⃣  Collect the <article> bubbles we care about */
-  const main      = document.querySelector('main') ?? document.body;
-  const articles  = Array.from(
-    main.querySelectorAll<HTMLElement>('article[data-testid^="conversation-turn"]')
+  /* 2. Keep only the conversation bubbles */
+  const articles = Array.from(
+    (document.querySelector('main') ?? document.body)
+      .querySelectorAll<HTMLElement>('article[data-testid^="conversation-turn"]')
   );
 
-  /* 3️⃣  Replace <body> content with just those bubbles */
   const wrapper = document.createElement('div');
   wrapper.style.maxWidth = '46rem';
   wrapper.style.margin   = '0 auto';
@@ -39,26 +39,28 @@ async function keepOnlyArticles(html: string): Promise<string> {
   document.body.innerHTML = '';
   document.body.appendChild(wrapper);
 
-  return dom.serialize();                   // <!DOCTYPE html> … fully styled
+  return dom.serialize();         // <!DOCTYPE html> … fully styled
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 export async function parseChatGPT(source: string): Promise<Conversation> {
-  const isUrl   = /^https?:\/\//i.test(source);
+  const isUrl = /^https?:\/\//i.test(source);
 
-  // 1. Get a *self-contained* page (all external CSS already in-lined)
-  const rawHtml = isUrl
-    ? await scrapeChatGPTWithInlineStyles(source)
-    : source;
-
-  // 2. Strip everything except the conversation turns
-  const html = await keepOnlyArticles(rawHtml);
+  // For share-page URLs we now rely entirely on the helper, which already:
+  //  • loads the page in Puppeteer
+  //  • inlines <link> CSS (and optionally fonts)
+  //  • crops <body> to only the conversation container
+  //
+  // For raw/pasted HTML we still need to inline & crop locally.
+  const html = isUrl
+    ? await scrapeChatGPTWithInlineStyles(source)    // bubbles-only, ready
+    : await keepOnlyArticles(source);                // still needs trimming
 
   return {
     model:           'ChatGPT',
-    content:         html,                       // only <article> bubbles
+    content:         html,
     scrapedAt:       new Date().toISOString(),
     sourceHtmlBytes: Buffer.byteLength(html),
-  };
+  } as Conversation;
 }
