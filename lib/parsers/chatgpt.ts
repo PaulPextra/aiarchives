@@ -2,8 +2,8 @@ import puppeteer from 'puppeteer';
 import type { Conversation } from '@/types/conversation';
 
 /**
- * Extract and return only the conversation content (article bubbles)
- * from a ChatGPT share page — all stylesheets are inlined.
+ * Scrapes only the conversation (user ↔ assistant) from a ChatGPT share URL,
+ * with all stylesheets inlined.
  */
 export async function parseChatGPT(url: string): Promise<Conversation> {
   const browser = await puppeteer.launch({ headless: 'new' });
@@ -11,7 +11,7 @@ export async function parseChatGPT(url: string): Promise<Conversation> {
 
   await page.goto(url, { waitUntil: 'networkidle0' });
 
-  // Inline all external stylesheets (<link rel="stylesheet"> → <style>)
+  // Inline all external stylesheets
   await page.evaluate(async () => {
     const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]'));
     for (const link of links) {
@@ -19,36 +19,40 @@ export async function parseChatGPT(url: string): Promise<Conversation> {
         const css   = await (await fetch(link.href)).text();
         const style = document.createElement('style');
         style.textContent = css;
+        style.setAttribute('data-inlined-from', link.href);
         link.replaceWith(style);
-      } catch { /* skip errors */ }
+      } catch { /* ignore failures */ }
     }
   });
 
-  // Only keep the <article> conversation bubbles
-  const cropped = await page.evaluate(() => {
+  // Extract only the article bubbles and preserve head/styles
+  const html = await page.evaluate(() => {
     const articles = Array.from(
       document.querySelectorAll('article[data-testid^="conversation-turn"]')
     );
 
     const wrapper = document.createElement('div');
     wrapper.style.maxWidth = '46rem';
-    wrapper.style.margin = '0 auto';
-
+    wrapper.style.margin   = '0 auto';
     articles.forEach(a => wrapper.appendChild(a.cloneNode(true)));
 
-    const docClone = document.cloneNode(true) as Document;
-    docClone.body.innerHTML = '';
-    docClone.body.appendChild(wrapper);
+    const head = document.head.cloneNode(true);
+    const body = document.createElement('body');
+    body.appendChild(wrapper);
 
-    return '<!DOCTYPE html>\n' + docClone.documentElement.outerHTML;
+    const doc = document.implementation.createHTMLDocument('ChatGPT Conversation');
+    doc.head.replaceWith(head);
+    doc.body.replaceWith(body);
+
+    return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
   });
 
   await browser.close();
 
   return {
     model: 'ChatGPT',
-    content: cropped,
+    content: html,
     scrapedAt: new Date().toISOString(),
-    sourceHtmlBytes: Buffer.byteLength(cropped),
+    sourceHtmlBytes: Buffer.byteLength(html),
   };
 }
