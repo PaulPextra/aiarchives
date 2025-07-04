@@ -4,7 +4,7 @@ import { inline } from 'css-inline';
 
 /**
  * Scrapes only the conversation (user ↔ assistant) from a ChatGPT share URL,
- * with all stylesheets inlined.
+ * with all stylesheets inlined, no navigation bar, and all buttons set to display: none.
  * @param html - The raw HTML string of the ChatGPT share page.
  * @returns A Promise resolving to a Conversation object containing the model, processed HTML content, scrape timestamp, and source HTML byte length.
  */
@@ -12,6 +12,12 @@ export async function parseChatGPT(html: string): Promise<Conversation> {
   try {
     // Load HTML into cheerio for parsing
     const $ = cheerio.load(html);
+
+    // Remove all <nav> elements to hide navigation bar
+    $('nav').remove();
+
+    // Set display: none for all <button> elements
+    $('button').css('display', 'none');
 
     // Select the user message container
     const userMessage = $('.relative.max-w-\\[var\\(--user-chat-width,70%\\)\\] .whitespace-pre-wrap');
@@ -38,7 +44,10 @@ export async function parseChatGPT(html: string): Promise<Conversation> {
     }
 
     // Extract all <style> tags from the original HTML (if any)
-    const styles = $('style').map((_, el) => $(el).html()).get().join('\n');
+    let styles = $('style').map((_, el) => $(el).html()).get().join('\n');
+
+    // Add rule to ensure buttons are hidden
+    styles += `\nbutton { display: none !important; }`;
 
     // Add styles to the conversation HTML if present
     if (styles) {
@@ -56,7 +65,8 @@ export async function parseChatGPT(html: string): Promise<Conversation> {
           .chatgpt-conversation { font-family: Arial, sans-serif; }
           .user-message { background-color: #f0f0f0; padding: 10px; border-radius: 15px; margin: 5px 0; }
           .assistant-message { background-color: #ffffff; padding: 10px; border-radius: 15px; margin: 5px 0; }
-        `, // Fallback styles to mimic ChatGPT's look
+          button { display: none !important; }
+        `, // Fallback styles, including button hiding
       });
     } catch (inlineError) {
       console.warn('Failed to inline styles:', inlineError);
