@@ -13,27 +13,37 @@ export async function parseChatGPT(html: string): Promise<Conversation> {
     // Load HTML into cheerio for parsing
     const $ = cheerio.load(html);
 
-    // Select the conversation container (adjust selector based on ChatGPT's DOM structure)
-    // Assuming conversation messages are in divs with classes like 'message-user' and 'message-assistant'
-    const conversationElements = $('.message-user, .message-assistant');
+    // Select the user message container
+    const userMessage = $('.relative.max-w-\\[var\\(--user-chat-width,70%\\)\\] .whitespace-pre-wrap');
+    // Select the assistant response container
+    const assistantMessage = $('.markdown.prose');
 
-    if (conversationElements.length === 0) {
+    if (userMessage.length === 0 && assistantMessage.length === 0) {
       throw new Error('No conversation messages found in the provided HTML.');
     }
 
     // Create a new container for the conversation
     const conversationHtml = $('<div class="chatgpt-conversation"></div>');
 
-    // Append each message to the container, preserving structure
-    conversationElements.each((_, element) => {
-      conversationHtml.append($(element).clone());
-    });
+    // Append user message if present
+    if (userMessage.length > 0) {
+      const userDiv = $('<div class="user-message"></div>').append(userMessage.clone());
+      conversationHtml.append(userDiv);
+    }
 
-    // Extract all <style> tags from the original HTML
+    // Append assistant message if present
+    if (assistantMessage.length > 0) {
+      const assistantDiv = $('<div class="assistant-message"></div>').append(assistantMessage.clone());
+      conversationHtml.append(assistantDiv);
+    }
+
+    // Extract all <style> tags from the original HTML (if any)
     const styles = $('style').map((_, el) => $(el).html()).get().join('\n');
 
-    // Add styles to the conversation HTML
-    conversationHtml.prepend(`<style>${styles}</style>`);
+    // Add styles to the conversation HTML if present
+    if (styles) {
+      conversationHtml.prepend(`<style>${styles}</style>`);
+    }
 
     // Convert the conversation HTML to a string
     let conversationHtmlString = $.html(conversationHtml);
@@ -42,7 +52,11 @@ export async function parseChatGPT(html: string): Promise<Conversation> {
     try {
       conversationHtmlString = await inline(conversationHtmlString, {
         remove_style_tags: true, // Remove original <style> tags after inlining
-        extra_css: '', // Add any additional CSS if needed
+        extra_css: `
+          .chatgpt-conversation { font-family: Arial, sans-serif; }
+          .user-message { background-color: #f0f0f0; padding: 10px; border-radius: 15px; margin: 5px 0; }
+          .assistant-message { background-color: #ffffff; padding: 10px; border-radius: 15px; margin: 5px 0; }
+        `, // Fallback styles to mimic ChatGPT's look
       });
     } catch (inlineError) {
       console.warn('Failed to inline styles:', inlineError);
