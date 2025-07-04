@@ -45,19 +45,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
+    // console.log(params);
     await ensureInitialized();
     const id = (await params).id;
-
-    // Get conversation record from database
     const record = await getConversationRecord(id);
+    const signedUrl = await s3Client.getSignedReadUrl(record.contentKey);
 
-    // Get conversation content from S3
-    const content = await s3Client.getConversationContent(record.contentKey);
-
-    return NextResponse.json({
-      conversation: record,
-      content: content,
-    });
+    return NextResponse.json({ url: signedUrl });
   } catch (error) {
     console.error('Error retrieving conversation:', error);
 

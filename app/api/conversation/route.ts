@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
 
     // Store only the conversation content in S3
     const contentKey = await s3Client.storeConversation(conversationId, conversation.content);
+    // console.log(conversationId, conversation.content);
 
     // Create the database record with metadata
     const dbInput: CreateConversationInput = {
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
     const record = await createConversationRecord(dbInput);
 
     // Generate the permalink using the database-generated ID
-    const permalink = `${process.env.NEXT_PUBLIC_BASE_URL}/conversation/${record.id}`;
+    const permalink = `${process.env.NEXT_PUBLIC_BASE_URL}/c/${record.id}`;
 
     return NextResponse.json(
       { url: permalink },
