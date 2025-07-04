@@ -1,66 +1,54 @@
-import { scrapeChatGPTWithInlineStyles } from '@/lib/parsers/scrapeChatGPTWithInlineStyles';
-import type { Conversation }             from '@/types/conversation';
-import { JSDOM }                         from 'jsdom';
+import puppeteer from 'puppeteer';
+import type { Conversation } from '@/types/conversation';
 
 /**
- *  Trim pasted /raw HTML down to just the <article> turns and inline any
- *  remaining external stylesheets.  (We call this only for *non-URL* input
- *  because scrapeChatGPTWithInlineStyles already returns bubbles-only.)
+ * Extract and return only the conversation content (article bubbles)
+ * from a ChatGPT share page — all stylesheets are inlined.
  */
-async function keepOnlyArticles(html: string): Promise<string> {
-  const dom          = new JSDOM(html);
-  const { document } = dom.window;
+export async function parseChatGPT(url: string): Promise<Conversation> {
+  const browser = await puppeteer.launch({ headless: 'new' });
+  const page    = await browser.newPage();
 
-  /* 1. Any leftover <link rel="stylesheet"> → inline <style> */
-  await Promise.all(
-    Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'))
-      .map(async link => {
-        try {
-          const css   = await (await fetch(link.href)).text();
-          const style = document.createElement('style');
-          style.textContent = css;
-          style.setAttribute('data-inlined-from', link.href.split('?')[0]);
-          link.replaceWith(style);
-        } catch { /* ignore CORS / 404 */ }
-      })
-  );
+  await page.goto(url, { waitUntil: 'networkidle0' });
 
-  /* 2. Keep only the conversation bubbles */
-  const articles = Array.from(
-    (document.querySelector('main') ?? document.body)
-      .querySelectorAll<HTMLElement>('article[data-testid^="conversation-turn"]')
-  );
+  // Inline all external stylesheets (<link rel="stylesheet"> → <style>)
+  await page.evaluate(async () => {
+    const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]'));
+    for (const link of links) {
+      try {
+        const css   = await (await fetch(link.href)).text();
+        const style = document.createElement('style');
+        style.textContent = css;
+        link.replaceWith(style);
+      } catch { /* skip errors */ }
+    }
+  });
 
-  const wrapper = document.createElement('div');
-  wrapper.style.maxWidth = '46rem';
-  wrapper.style.margin   = '0 auto';
-  articles.forEach(a => wrapper.appendChild(a.cloneNode(true)));
+  // Only keep the <article> conversation bubbles
+  const cropped = await page.evaluate(() => {
+    const articles = Array.from(
+      document.querySelectorAll('article[data-testid^="conversation-turn"]')
+    );
 
-  document.body.innerHTML = '';
-  document.body.appendChild(wrapper);
+    const wrapper = document.createElement('div');
+    wrapper.style.maxWidth = '46rem';
+    wrapper.style.margin = '0 auto';
 
-  return dom.serialize();         // <!DOCTYPE html> … fully styled
-}
+    articles.forEach(a => wrapper.appendChild(a.cloneNode(true)));
 
-/* ─────────────────────────────────────────────────────────────────────────── */
+    const docClone = document.cloneNode(true) as Document;
+    docClone.body.innerHTML = '';
+    docClone.body.appendChild(wrapper);
 
-export async function parseChatGPT(source: string): Promise<Conversation> {
-  const isUrl = /^https?:\/\//i.test(source);
+    return '<!DOCTYPE html>\n' + docClone.documentElement.outerHTML;
+  });
 
-  // For share-page URLs we now rely entirely on the helper, which already:
-  //  • loads the page in Puppeteer
-  //  • inlines <link> CSS (and optionally fonts)
-  //  • crops <body> to only the conversation container
-  //
-  // For raw/pasted HTML we still need to inline & crop locally.
-  const html = isUrl
-    ? await scrapeChatGPTWithInlineStyles(source)    // bubbles-only, ready
-    : await keepOnlyArticles(source);                // still needs trimming
+  await browser.close();
 
   return {
-    model:           'ChatGPT',
-    content:         html,
-    scrapedAt:       new Date().toISOString(),
-    sourceHtmlBytes: Buffer.byteLength(html),
-  } as Conversation;
+    model: 'ChatGPT',
+    content: cropped,
+    scrapedAt: new Date().toISOString(),
+    sourceHtmlBytes: Buffer.byteLength(cropped),
+  };
 }
