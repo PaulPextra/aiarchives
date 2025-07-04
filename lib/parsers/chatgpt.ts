@@ -2,27 +2,35 @@ import { scrapeChatGPTWithInlineStyles } from '@/lib/parsers/scrapeChatGPTWithIn
 import type { Conversation }             from '@/types/conversation';
 import { JSDOM }                         from 'jsdom';
 
-async function prepRawHtml(html: string): Promise<string> {
-  const dom        = new JSDOM(html);
-  const { document } = dom.window;
+/**
+ *  ░▒▓█ Crop the HTML so **only the conversation bubbles remain** █▓▒░
+ *  – keeps <html>/<head> intact so in-lined CSS variables still work –
+ */
+async function keepOnlyArticles(html: string): Promise<string> {
+  const dom              = new JSDOM(html);
+  const { document }     = dom.window;
+
+  /* 1️⃣  Inline any leftover <link rel="stylesheet"> (raw HTML path) */
   const links = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'));
   await Promise.all(
     links.map(async link => {
-      const href = link.href;
-      if (!href) return;
-
       try {
-        const css   = await (await fetch(href)).text();
+        const css   = await (await fetch(link.href)).text();
         const style = document.createElement('style');
         style.textContent = css;
-        style.setAttribute('data-inlined-from', href.split('?')[0]);
+        style.setAttribute('data-inlined-from', link.href.split('?')[0]);
         link.replaceWith(style);
-      } catch {/* ignore */ }
+      } catch {/* ignore network errors */ }
     })
   );
 
-  const mainTag   = document.getElementsByTagName('main')[0] ?? document.body;
-  const articles  = Array.from(mainTag.getElementsByTagName('article'));
+  /* 2️⃣  Collect the <article> bubbles we care about */
+  const main      = document.querySelector('main') ?? document.body;
+  const articles  = Array.from(
+    main.querySelectorAll<HTMLElement>('article[data-testid^="conversation-turn"]')
+  );
+
+  /* 3️⃣  Replace <body> content with just those bubbles */
   const wrapper = document.createElement('div');
   wrapper.style.maxWidth = '46rem';
   wrapper.style.margin   = '0 auto';
@@ -31,20 +39,26 @@ async function prepRawHtml(html: string): Promise<string> {
   document.body.innerHTML = '';
   document.body.appendChild(wrapper);
 
-  return dom.serialize();
+  return dom.serialize();                   // <!DOCTYPE html> … fully styled
 }
 
-export async function parseChatGPT(source: string): Promise<Conversation> {
-  const isUrl = /^https?:\/\//i.test(source);
+/* ─────────────────────────────────────────────────────────────────────────── */
 
-  const html  = isUrl
-    ? await scrapeChatGPTWithInlineStyles(source) // already uses same strategy
-    : await prepRawHtml(source);
+export async function parseChatGPT(source: string): Promise<Conversation> {
+  const isUrl   = /^https?:\/\//i.test(source);
+
+  // 1. Get a *self-contained* page (all external CSS already in-lined)
+  const rawHtml = isUrl
+    ? await scrapeChatGPTWithInlineStyles(source)
+    : source;
+
+  // 2. Strip everything except the conversation turns
+  const html = await keepOnlyArticles(rawHtml);
 
   return {
-    model: 'ChatGPT',
-    content: html,
-    scrapedAt: new Date().toISOString(),
+    model:           'ChatGPT',
+    content:         html,                       // only <article> bubbles
+    scrapedAt:       new Date().toISOString(),
     sourceHtmlBytes: Buffer.byteLength(html),
-  } as Conversation;
+  };
 }
