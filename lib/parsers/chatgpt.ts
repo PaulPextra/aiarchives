@@ -17,24 +17,20 @@ async function prepRawHtml(html: string): Promise<string> {
         style.textContent = css;
         style.setAttribute('data-inlined-from', href.split('?')[0]);
         link.replaceWith(style);
-      } catch { /* ignore failures */ }
+      } catch {/* ignore */ }
     })
   );
 
-  /* Keep **only** the <article> bubbles, but preserve <html>/<body> */
-  const ARTICLE_SEL = 'article[data-testid^="conversation-turn"]';
-  const wrapper     = document.createElement('div');
+  const mainTag   = document.getElementsByTagName('main')[0] ?? document.body;
+  const articles  = Array.from(mainTag.getElementsByTagName('article'));
+  const wrapper = document.createElement('div');
   wrapper.style.maxWidth = '46rem';
   wrapper.style.margin   = '0 auto';
-
-  document.querySelectorAll(ARTICLE_SEL).forEach(el =>
-    wrapper.appendChild(el.cloneNode(true))
-  );
+  articles.forEach(a => wrapper.appendChild(a.cloneNode(true)));
 
   document.body.innerHTML = '';
   document.body.appendChild(wrapper);
 
-  /* Return fully-serialised HTML (doctype, <head>, attrs all intact) */
   return dom.serialize();
 }
 
@@ -42,11 +38,12 @@ export async function parseChatGPT(source: string): Promise<Conversation> {
   const isUrl = /^https?:\/\//i.test(source);
 
   const html  = isUrl
-    ? await scrapeChatGPTWithInlineStyles(source)
+    ? await scrapeChatGPTWithInlineStyles(source) // already uses same strategy
     : await prepRawHtml(source);
+
   return {
     model: 'ChatGPT',
-    content: html,               
+    content: html,
     scrapedAt: new Date().toISOString(),
     sourceHtmlBytes: Buffer.byteLength(html),
   } as Conversation;
