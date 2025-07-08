@@ -2,8 +2,8 @@ import type { Conversation } from '@/types/conversation';
 import cheerio from 'cheerio';
 
 
-export async function parseChatGPT(rawHtml: string): Promise<Conversation> {
-  const $ = cheerio.load(rawHtml);
+export async function parseChatGPT(html: string): Promise<Conversation> {
+  const $ = cheerio.load(html);
   const conversationContent = $('.markdown.prose.dark\\:prose-invert.w-full.break-words');
 
   if (conversationContent.length === 0) {
