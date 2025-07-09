@@ -1,7 +1,7 @@
 import type { Conversation } from '@/types/conversation';
 import puppeteer from 'puppeteer';
 import { JSDOM } from 'jsdom';
-
+import cheerio from 'cheerio';
 
 // Helper: inline all CSS from <link rel="stylesheet">
 async function inlineExternalStyles(html: string): Promise<string> {
@@ -49,10 +49,17 @@ export async function parseChatGPT(url: string): Promise<Conversation> {
   await browser.close();
 
   const styledHtml = await inlineExternalStyles(rawHtml);
+  const $ = cheerio.load(styledHtml);
+  const content = $('.\\@thread-xl\\/thread\\:pt-header-height.flex.flex-col.text-sm.pb-25');
+
+
+  if (content.length === 0) {
+    throw new Error('No conversation content found');
+  }
 
   return {
     model: 'ChatGPT',
-    content: styledHtml,
+    content: content.html().trim(),
     scrapedAt: new Date().toISOString(),
     sourceHtmlBytes: Buffer.byteLength(styledHtml),
   };
