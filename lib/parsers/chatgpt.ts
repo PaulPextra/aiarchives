@@ -4,18 +4,16 @@ import cheerio from 'cheerio';
 
 export async function parseChatGPT(html: string): Promise<Conversation> {
   const $ = cheerio.load(html);
-  const conversationContent = $('.markdown.prose.dark\\:prose-invert.w-full.break-words');
+  const content = $('.\\@thread-xl\\/thread\\:pt-header-height.flex.flex-col.text-sm.pb-25');
 
-  if (conversationContent.length === 0) {
+  if (content.length === 0) {
     throw new Error('No conversation content found');
   }
-
-  const content = conversationContent.html().trim();
 
   return {
     model: 'ChatGPT',
     content,
     scrapedAt: new Date().toISOString(),
-    sourceHtmlBytes: Buffer.byteLength(rawHtml),
+    sourceHtmlBytes: Buffer.byteLength(html),
   };
 }
