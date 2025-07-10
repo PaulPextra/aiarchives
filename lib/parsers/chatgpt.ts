@@ -38,8 +38,8 @@ export async function parseChatGPT(url: string): Promise<Conversation> {
     throw new Error('parseChatGPT expects a full https:// share URL');
   }
 
-  const browser = await puppeteer.launch({ headless: 'new' });
-  const page = await browser.newPage();
+  const browser = await puppeteer.launch({ headless: true });
+  const page    = await browser.newPage();
   await page.goto(url, { waitUntil: 'networkidle0' });
 
   // Ensure lazy content like code blocks loads
