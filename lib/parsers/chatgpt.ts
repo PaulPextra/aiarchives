@@ -6,25 +6,28 @@ import { JSDOM } from 'jsdom';
 // Helper: inline all CSS from <link rel="stylesheet">
 async function inlineExternalStyles(html: string): Promise<string> {
   const dom = new JSDOM(html);
-  const document = dom.window.document;
+const document = dom.window.document;
 
-  const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]'));
-  await Promise.all(
-    links.map(async link => {
-      const href = link.href;
-      if (!href) return;
+const links = Array.from(
+  document.querySelectorAll('link[rel="stylesheet"]') as NodeListOf<HTMLLinkElement>
+);
 
-      try {
-        const css = await (await fetch(href)).text();
-        const style = document.createElement('style');
-        style.textContent = css;
-        style.setAttribute('data-inlined-from', href);
-        link.replaceWith(style);
-      } catch {
-        // Fail silently: leave link so browser can fetch it
-      }
-    })
-  );
+await Promise.all(
+  links.map(async link => {
+    const href = link.href;
+    if (!href) return;
+
+    try {
+      const css = await (await fetch(href)).text();
+      const style = document.createElement('style');
+      style.textContent = css;
+      style.setAttribute('data-inlined-from', href.split('?')[0]);
+      link.replaceWith(style);
+    } catch {
+      // silently fail
+    }
+  })
+);
 
   return dom.serialize();
 }
