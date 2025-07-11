@@ -35,7 +35,8 @@ await Promise.all(
 // Main scraper
 export async function parseChatGPT(url: string): Promise<Conversation> {
   if (!/^https?:\/\//i.test(url)) {
-    throw new Error('parseChatGPT expects a full https:// share URL');
+    const cleaned = url.replace(/^\/?share\//, '');
+    url = `https://chat.openai.com/share/${cleaned}`;
   }
 
   const browser = await puppeteer.launch({ headless: true });
