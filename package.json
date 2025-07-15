@@ -14,7 +14,6 @@
     "@radix-ui/react-avatar": "^1.1.9",
     "@radix-ui/react-slot": "^1.2.2",
     "@types/pg": "^8.15.4",
-    "cheerio": "^1.1.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "css-inline": "^0.11.2",
@@ -24,8 +23,6 @@
     "next": "15.3.2",
     "node-fetch": "^3.3.2",
     "pg": "^8.16.0",
-    "playwright": "^1.54.1",
-    "puppeteer": "^24.12.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.3.0"

@@ -1,6 +1,5 @@
 import type { Conversation } from '@/types/conversation';
 import { JSDOM } from 'jsdom';
-import { chromium } from 'playwright';
 
 /**
  * Helper to inline all external <link rel="stylesheet"> tags into <style> tags.
@@ -26,7 +25,7 @@ async function inlineExternalStyles(html: string): Promise<Document> {
         style.setAttribute('data-inlined-from', href.split('?')[0]);
         link.replaceWith(style);
       } catch {
-        // Silently fail if fetch fails
+        // Silently fail
       }
     })
   );
@@ -45,25 +44,17 @@ export async function parseChatGPT(url: string): Promise<Conversation> {
     url = `https://chat.openai.com/share/${cleaned}`;
   }
 
-  // 1. Launch headless Chromium with Playwright
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
-  await page.goto(url, { waitUntil: 'networkidle' });
+  // Fetch the raw HTML from the share URL
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch URL: ${url}`);
+  }
+  const rawHtml = await res.text();
 
-  // 2. Scroll to load all lazy content (code blocks, markdown, etc.)
-  await page.evaluate(async () => {
-    window.scrollTo({ top: document.body.scrollHeight });
-    await new Promise((resolve) => setTimeout(resolve, 600));
-  });
-
-  // 3. Grab fully rendered HTML
-  const rawHtml = await page.content();
-  await browser.close();
-
-  // 4. Inline external CSS to preserve styles
+  // Inline styles
   const document = await inlineExternalStyles(rawHtml);
 
-  // 5. Extract only conversation blocks
+  // Extract conversation blocks
   const conversationBlocks = Array.from(
     document.querySelectorAll('div.markdown.prose.dark\\:prose-invert.w-full.break-words')
   );
@@ -72,7 +63,7 @@ export async function parseChatGPT(url: string): Promise<Conversation> {
     throw new Error('Conversation content not found');
   }
 
-  // 6. Build a minimal styled HTML output
+  // Final output
   const htmlContent = `
     <html>
       <head>${document.head.innerHTML}</head>
