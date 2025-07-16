@@ -1,49 +1,59 @@
-import { chromium } from 'playwright';
 import type { Conversation } from '@/types/conversation';
+import { JSDOM } from 'jsdom';
 
 /**
- * Scrape and extract only the styled ChatGPT conversation blocks using Playwright.
- * @param url A ChatGPT share URL (full or /share/xxx format)
+ * Extracts the styled ChatGPT conversation blocks from raw HTML.
+ * @param html Raw HTML string from a ChatGPT share page
+ * @returns A structured Conversation object
  */
-export async function parseChatGPT(url: string): Promise<Conversation> {
-  // Normalize short format share URLs like "/share/abc123"
-  if (!/^https?:\/\//i.test(url)) {
-    const cleaned = url.replace(/^\/?share\//, '');
-    url = `https://chat.openai.com/share/${cleaned}`;
+export async function parseChatGPT(html: string): Promise<Conversation> {
+  const dom = new JSDOM(html);
+  const document = dom.window.document;
+
+  // Extract <style> from external links and inline them
+  const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]') as NodeListOf<HTMLLinkElement>);
+
+  await Promise.all(
+    links.map(async link => {
+      const href = link.href;
+      if (!href) return;
+
+      try {
+        const res = await fetch(href);
+        const css = await res.text();
+        const style = document.createElement('style');
+        style.textContent = css;
+        style.setAttribute('data-inlined-from', href.split('?')[0]);
+        link.replaceWith(style);
+      } catch {
+        // Ignore failed fetch
+      }
+    })
+  );
+
+  // Select all conversation blocks
+  const blocks = Array.from(
+    document.querySelectorAll('div.markdown.prose.dark\\:prose-invert.w-full.break-words')
+  );
+
+  if (blocks.length === 0) {
+    throw new Error('No ChatGPT conversation blocks found.');
   }
 
-  // Launch headless Chromium
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
-  await page.goto(url, { waitUntil: 'networkidle' });
-
-  // Wait for content to load
-  await page.waitForSelector('div.markdown.prose.dark\\:prose-invert.w-full.break-words');
-
-  // Extract necessary styled content
-  const htmlContent = await page.evaluate(() => {
-    const head = document.head.innerHTML;
-    const blocks = Array.from(
-      document.querySelectorAll('div.markdown.prose.dark\\:prose-invert.w-full.break-words')
-    );
-    const body = blocks.map(el => el.outerHTML).join('\n');
-
-    return `
-      <html>
-        <head>${head}</head>
-        <body class="dark">
-          ${body}
-        </body>
-      </html>
-    `;
-  });
-
-  await browser.close();
+  // Compose final HTML document
+  const content = `
+    <html>
+      <head>${document.head.innerHTML}</head>
+      <body class="dark">
+        ${blocks.map(block => block.outerHTML).join('\n')}
+      </body>
+    </html>
+  `;
 
   return {
     model: 'ChatGPT',
-    content: htmlContent,
+    content,
     scrapedAt: new Date().toISOString(),
-    sourceHtmlBytes: Buffer.byteLength(htmlContent),
+    sourceHtmlBytes: Buffer.byteLength(content),
   };
 }
