@@ -2,58 +2,73 @@ import type { Conversation } from '@/types/conversation';
 import { JSDOM } from 'jsdom';
 
 /**
- * Extracts the styled ChatGPT conversation blocks from raw HTML.
- * @param html Raw HTML string from a ChatGPT share page
- * @returns A structured Conversation object
+ * Helper to safely inline external <link rel="stylesheet"> tags into <style> tags.
  */
-export async function parseChatGPT(html: string): Promise<Conversation> {
+async function inlineExternalStyles(html: string): Promise<Document> {
   const dom = new JSDOM(html);
   const document = dom.window.document;
 
-  // Extract <style> from external links and inline them
-  const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]') as NodeListOf<HTMLLinkElement>);
+  const links = Array.from(
+    document.querySelectorAll('link[rel="stylesheet"]') as NodeListOf<HTMLLinkElement>
+  );
 
   await Promise.all(
-    links.map(async link => {
+    links.map(async (link) => {
       const href = link.href;
-      if (!href) return;
+      if (!href || href.startsWith('https://cdn.jsdelivr.net') || href.includes('tailwind')) {
+        return;
+      }
 
       try {
         const res = await fetch(href);
         const css = await res.text();
         const style = document.createElement('style');
-        style.textContent = css;
-        style.setAttribute('data-inlined-from', href.split('?')[0]);
-        link.replaceWith(style);
-      } catch {
-        // Ignore failed fetch
+        try {
+          style.textContent = css;
+          style.setAttribute('data-inlined-from', href.split('?')[0]);
+          link.replaceWith(style);
+        } catch (innerErr) {
+          console.warn(`⚠️ Could not apply CSS from ${href}:`, innerErr);
+        }
+      } catch (err) {
+        console.warn(`⚠️ Failed to fetch stylesheet ${href}:`, err);
       }
     })
   );
 
-  // Select all conversation blocks
-  const blocks = Array.from(
+  return document;
+}
+
+/**
+ * Parses a raw ChatGPT share HTML to extract only the conversation with styles.
+ */
+export async function parseChatGPT(html: string): Promise<Conversation> {
+  // Inline all usable <link> styles
+  const document = await inlineExternalStyles(html);
+
+  // Extract only the conversation blocks
+  const conversationBlocks = Array.from(
     document.querySelectorAll('div.markdown.prose.dark\\:prose-invert.w-full.break-words')
   );
 
-  if (blocks.length === 0) {
-    throw new Error('No ChatGPT conversation blocks found.');
+  if (conversationBlocks.length === 0) {
+    throw new Error('Conversation content not found');
   }
 
-  // Compose final HTML document
-  const content = `
+  // Construct the final minimal HTML with styles + content only
+  const htmlContent = `
     <html>
       <head>${document.head.innerHTML}</head>
       <body class="dark">
-        ${blocks.map(block => block.outerHTML).join('\n')}
+        ${conversationBlocks.map(block => block.outerHTML).join('\n')}
       </body>
     </html>
   `;
 
   return {
     model: 'ChatGPT',
-    content,
+    content: htmlContent,
     scrapedAt: new Date().toISOString(),
-    sourceHtmlBytes: Buffer.byteLength(content),
+    sourceHtmlBytes: Buffer.byteLength(htmlContent),
   };
 }
