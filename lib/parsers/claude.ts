@@ -8,5 +8,6 @@ export async function parseClaude(html: string): Promise<Conversation> {
     model: 'Claude',
     content: html,
     scrapedAt: new Date().toISOString(),
+    sourceHtmlBytes: html.length,
   };
 }

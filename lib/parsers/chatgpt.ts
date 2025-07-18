@@ -8,5 +8,6 @@ export async function parseChatGPT(html: string): Promise<Conversation> {
     model: 'ChatGPT',
     content: html,
     scrapedAt: new Date().toISOString(),
+    sourceHtmlBytes: html.length,
   };
 }

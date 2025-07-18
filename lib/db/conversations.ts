@@ -15,20 +15,30 @@ export async function createConversationRecord(input: CreateConversationInput): 
     INSERT INTO conversations (
       model,
       scraped_at,
-      content_key
+      content_key,
+      source_html_bytes,
+      views
     ) VALUES (
-      $1, $2, $3
+      $1, $2, $3, $4, $5
     )
-    RETURNING 
+    RETURNING
       id,
       model,
-      scraped_at as "scrapedAt",
-      content_key as "contentKey",
-      created_at as "createdAt"
+      scraped_at     AS "scrapedAt",
+      content_key    AS "contentKey",
+      source_html_bytes AS "sourceHtmlBytes",
+      views,
+      created_at     AS "createdAt"
   `;
 
   try {
-    const result = await pool.query(query, [input.model, input.scrapedAt, input.contentKey]);
+    const result = await pool.query(query, [
+      input.model,
+      input.scrapedAt,
+      input.contentKey,
+      input.sourceHtmlBytes,
+      input.views,
+    ]);
 
     if (result.rows.length === 0) {
       throw new Error('Failed to create conversation record - no rows returned');
@@ -73,5 +83,38 @@ export async function getConversationRecord(id: string): Promise<ConversationRec
     return result.rows[0] as ConversationRecord;
   } catch (error) {
     throw new Error(`Failed to get conversation record: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * Retrieves all conversation records from the database with pagination
+ *
+ * @param limit - Maximum number of records to return (default: 50)
+ * @param offset - Number of records to skip (default: 0)
+ * @returns Array of conversation records ordered by creation date (newest first)
+ * @throws Error if database operation fails
+ */
+export async function getAllConversationRecords(limit: number = 50, offset: number = 0): Promise<ConversationRecord[]> {
+  const pool = dbClient.getPool();
+
+  const query = `
+    SELECT 
+      id,
+      model,
+      scraped_at as "scrapedAt",
+      content_key as "contentKey",
+      source_html_bytes as "sourceHtmlBytes",
+      views,
+      created_at as "createdAt"
+    FROM conversations
+    ORDER BY created_at DESC
+    LIMIT $1 OFFSET $2
+  `;
+
+  try {
+    const result = await pool.query(query, [limit, offset]);
+    return result.rows as ConversationRecord[];
+  } catch (error) {
+    throw new Error(`Failed to get conversation records: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }

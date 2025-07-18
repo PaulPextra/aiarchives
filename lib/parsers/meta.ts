@@ -8,5 +8,6 @@ export async function parseMeta(html: string): Promise<Conversation> {
     model: 'Meta',
     content: html,
     scrapedAt: new Date().toISOString(),
+    sourceHtmlBytes: html.length,
   };
 }

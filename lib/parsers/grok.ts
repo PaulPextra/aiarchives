@@ -10,5 +10,6 @@ export async function parseGrok(html: string): Promise<Conversation> {
     model: 'Grok',
     content: html,
     scrapedAt: new Date().toISOString(),
+    sourceHtmlBytes: html.length,
   };
 }

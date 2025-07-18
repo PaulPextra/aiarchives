@@ -8,5 +8,6 @@ export async function parseGemini(html: string): Promise<Conversation> {
     model: 'Gemini',
     content: html,
     scrapedAt: new Date().toISOString(),
+    sourceHtmlBytes: html.length,
   };
 }

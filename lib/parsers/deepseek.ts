@@ -10,5 +10,6 @@ export async function parseDeepSeek(html: string): Promise<Conversation> {
     model: 'DeepSeek',
     content: html,
     scrapedAt: new Date().toISOString(),
+    sourceHtmlBytes: html.length,
   };
 }

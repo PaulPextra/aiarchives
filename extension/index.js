@@ -19,7 +19,7 @@ async function scrape() {
 
   isRequesting = true;
 
-  const apiUrl = 'https://your-api-url.com/api/conversation';
+  const apiUrl = `${window.EXTENSION_CONFIG.baseUrl}/api/conversation`;
   const body = new FormData();
 
   // raw HTML
@@ -29,6 +29,7 @@ async function scrape() {
 
   try {
     const res = await fetch(apiUrl, { method: 'POST', body });
+    console.log('res =>', res, apiUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const { url } = await res.json();
     window.open(url, '_blank'); // view the saved conversation

@@ -10,5 +10,6 @@ export async function parsePerplexity(html: string): Promise<Conversation> {
     model: 'Perplexity',
     content: html,
     scrapedAt: new Date().toISOString(),
+    sourceHtmlBytes: html.length,
   };
 }

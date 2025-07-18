@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConversationRecord } from '@/lib/db/conversations';
 import { s3Client } from '@/lib/storage/s3';
+import { dbClient } from '@/lib/db/client';
 import { loadConfig } from '@/lib/config';
 
 let isInitialized = false;
@@ -10,22 +11,32 @@ let isInitialized = false;
  */
 async function ensureInitialized() {
   if (!isInitialized) {
-    const config = loadConfig();
-    s3Client.initialize(config.s3);
-    isInitialized = true;
+    try {
+      const config = loadConfig();
+      await dbClient.initialize(config.database);
+      s3Client.initialize(config.s3);
+      isInitialized = true;
+    } catch (error) {
+      // If S3 client is already initialized, that's fine
+      if (error instanceof Error && error.message.includes('already initialized')) {
+        isInitialized = true;
+      } else {
+        throw error;
+      }
+    }
   }
 }
 
 /**
  * GET /api/conversation/[id]
  *
- * Retrieves a signed URL for accessing a conversation's content
+ * Retrieves the full conversation data including content and metadata
  *
  * @param request - The incoming request
  * @param context - Route context containing the conversation ID
  *
  * Response:
- * - 200: { url: string } - The signed URL to access the conversation content
+ * - 200: { conversation: ConversationRecord, content: string } - The conversation data and content
  * - 404: { error: string } - Conversation not found
  * - 500: { error: string } - Server error
  */
@@ -36,10 +47,17 @@ export async function GET(
   try {
     await ensureInitialized();
     const id = (await params).id;
-    const record = await getConversationRecord(id);
-    const signedUrl = await s3Client.getSignedReadUrl(record.contentKey);
 
-    return NextResponse.json({ url: signedUrl });
+    // Get conversation record from database
+    const record = await getConversationRecord(id);
+
+    // Get conversation content from S3
+    const content = await s3Client.getConversationContent(record.contentKey);
+
+    return NextResponse.json({
+      conversation: record,
+      content: content,
+    });
   } catch (error) {
     console.error('Error retrieving conversation:', error);
 

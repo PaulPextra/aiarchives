@@ -10,5 +10,6 @@ export async function parseCopilot(html: string): Promise<Conversation> {
     model: 'Copilot',
     content: html,
     scrapedAt: new Date().toISOString(),
+    sourceHtmlBytes: html.length,
   };
 }

@@ -13,6 +13,12 @@ export interface ConversationRecord {
 
   /** When the record was created */
   createdAt: Date;
+
+  /** Number of bytes in the source HTML */
+  sourceHtmlBytes: number;
+
+  /** Number of views of the conversation */
+  views: number;
 }
 
 /**
