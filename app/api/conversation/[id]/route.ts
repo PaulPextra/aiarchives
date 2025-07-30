@@ -50,6 +50,7 @@ export async function GET(
     const id = (await params).id;
     const record = await getConversationRecord(id);
     const signedUrl = await s3Client.getSignedReadUrl(record.contentKey);
+    console.log("Error Debuging", id, record, signedUrl);
 
     return NextResponse.json({ url: signedUrl });
   } catch (error) {
